@@ -18,8 +18,19 @@ import optparse
 
 from btb import BTB
 from ras import RAS
+from predictor import *
+ 
 
-
+class Stats:
+   br = 0
+   jal = 0
+   jalr = 0
+   taken = 0
+   ret = 0
+   func = 0
+   mispredict = 0
+   missed_ret = 0 # how many rets could be predicted if used in the decode stage?
+          
 # return 0 if not a branch
 # non-zero if branch or jmp
 def isBrOrJmp(inst):
@@ -51,19 +62,21 @@ def ParseLine(line):
 # math for the RAS
 def isRetOrFunc(br_type, inst):
    rd = (inst >> 7) & 0x1f
-   rs1 = (inst >> 15) & 0x1f #TODO debug that this part is correct
+   rs1 = (inst >> 15) & 0x1f 
    is_ret = (br_type == 3 and rd == 0 and rs1 == 1)
-   is_func = (br_type == 3 and rd == 1)
-   return (is_ret, is_func)
+   is_call = ((br_type == 3 or br_type == 2) and rd == 1)
+   return (is_ret, is_call)
       
 
 
 def main():
    parser = optparse.OptionParser()
-   parser.add_option('-d', '--debug', dest='debug',
-                    help='Debug mode enabled', default=False)
+   parser.add_option('-d', '--debug', action="store_true", dest='debug',
+                    help='Debug mode enabled')
    parser.add_option('-t', '--tracefile', dest='tracefile',
                     help='input trace file [looks inside the trace directory], automatically adds .trace extension.', default="vvadd")
+   parser.add_option('-p', '--predictor', dest='predictor',
+                    help='predictor', default="rocket")
    parser.add_option('-w', '--width', dest='width',
                     help='Processor fetch width', default=1)
    parser.add_option('-b', '--btb-entries', dest='num_btb_entries',
@@ -79,17 +92,11 @@ def main():
    trace = open("traces/" + options.tracefile + ".trace")
 
    width = int(options.width)
-   btb = BTB(width,int(options.num_btb_entries))
-   ras = RAS(int(options.num_ras_entries))
 
-
-   stats_br = 0
-   stats_jal = 0
-   stats_jalr = 0
-   stats_taken = 0
-   stats_ret = 0
-   stats_func = 0
-   stats_mispredict = 0
+   if (options.predictor == "rocket"):
+      pred = RocketPredictor(width, int(options.num_btb_entries), int(options.num_ras_entries))
+   else:
+      pred = RocketPredictor(width, int(options.num_btb_entries), int(options.num_ras_entries))
 
 
    while 1:
@@ -97,18 +104,19 @@ def main():
       if not line: break
 
       (pc, inst) = ParseLine(line)
-
-      (pred_taken, pred_target) = btb.predict(pc)
+      
+      #TODO add a predictWithDecodedInst, to experiment with BHT, RAS using decoded instructions
+      (pred_taken, pred_target) = pred.predict(pc) 
 
 
       br_type = isBrOrJmp(inst)
-      (is_ret, is_func) = isRetOrFunc(br_type, inst)
+      (is_ret, is_call) = isRetOrFunc(br_type, inst)
      
       if (br_type > 0): 
          # TODO "updateStats()"
-         if (br_type==1): stats_br += 1
-         elif (br_type==2): stats_jal += 1
-         elif (br_type==3): stats_jalr += 1
+         if (br_type==1): Stats.br += 1
+         elif (br_type==2): Stats.jal += 1
+         elif (br_type==3): Stats.jalr += 1
          else: print("error")
 
          next_line = peek_line(trace)
@@ -118,26 +126,35 @@ def main():
          was_mispredicted = False
 
          if (target != pc+4):
-            stats_taken += 1
+            Stats.taken += 1
             was_taken = True
 
          if (pred_taken != was_taken or pred_target != target):
-            stats_mispredict += 1
+            Stats.mispredict += 1
             was_mispredicted = True
 
+         ret_addr = pc+4
 
          # Update
-         btb.update(pc, was_taken, target, pred_taken, pred_target)
+         pred.update(pc, was_taken, target, pred_taken, pred_target, is_ret, is_call, ret_addr)
 
          if (options.debug):
-            if (was_mispredicted and was_taken):
-               print "pc: %08x, inst: %08x %d , target: %x MISPREDICT (%d, %x)" % (pc, inst, isBrOrJmp(inst), target, pred_taken, pred_target)
-            elif (was_mispredicted and  not (was_taken)):
-               print "pc: %08x, inst: %08x %d , target: %x MISPREDICT (%d, %x) PC+4" % (pc, inst, isBrOrJmp(inst), target, pred_taken, pred_target)
-            elif (was_taken):
-               print "pc: %08x, inst: %08x %d , target: %x TAKEN" % (pc, inst, isBrOrJmp(inst), target)
-            else:
-               print "pc: %08x, inst: %08x %d , target: %x PC+4" % (pc, inst, isBrOrJmp(inst), target)
+            print "pc: 0x%08x, inst%08x %d, target: %x, %s %s%s %15s %10s" % (pc, inst, isBrOrJmp(inst), target, 
+#                                                                     ("TAKEN")
+                                                                     ("T" if was_taken else "-"),
+                                                                     ("RET" if is_ret else "   "),
+                                                                     ("CALL" if is_call else "    "),
+                                                                     ("Predicted Taken" if pred_taken else " "),
+                                                                     ("MISPREDICT" if was_mispredicted else " ")
+                                                                     )
+            #if (was_mispredicted and was_taken):
+            #   print "pc: %08x, inst: %08x %d , target: %x MISPREDICT (%d, %x)" % (pc, inst, isBrOrJmp(inst), target, pred_taken, pred_target)
+            #elif (was_mispredicted and  not (was_taken)):
+            #   print "pc: %08x, inst: %08x %d , target: %x MISPREDICT (%d, %x) PC+4" % (pc, inst, isBrOrJmp(inst), target, pred_taken, pred_target)
+            #elif (was_taken):
+            #   print "pc: %08x, inst: %08x %d , target: %x TAKEN" % (pc, inst, isBrOrJmp(inst), target)
+            #else:
+            #   print "pc: %08x, inst: %08x %d , target: %x PC+4" % (pc, inst, isBrOrJmp(inst), target)
       else:
          if (options.debug):
             print "pc: %08x, inst: %08x %d"  % (pc, inst, isBrOrJmp(inst))
@@ -147,17 +164,17 @@ def main():
 
    print "\n=============================="
    print "  Stats (%s): " % options.tracefile
-   print "   br            : %6d" % stats_br
-   print "   jal           : %6d" % stats_jal
-   print "   jalr          : %6d" % stats_jalr
+   print "   br            : %6d" % Stats.br
+   print "   jal           : %6d" % Stats.jal
+   print "   jalr          : %6d" % Stats.jalr
    print ""
-   print "  taken          : %6d  [%g %%] " % (stats_taken, 100.*stats_taken/(stats_br+stats_jal+stats_jalr))
-   print "  mispredicted   : %6d  [%g %%] " % (stats_mispredict, 100.*stats_mispredict/(stats_br+stats_jal+stats_jalr))
-   print "  Accurancy      : %6s  [%g %%] " % ("", 100.-100.*stats_mispredict/(stats_br+stats_jal+stats_jalr))
+   print "  taken          : %6d  [%g %%] " % (Stats.taken, 100.*Stats.taken/(Stats.br+Stats.jal+Stats.jalr))
+   print "  mispredicted   : %6d  [%g %%] " % (Stats.mispredict, 100.*Stats.mispredict/(Stats.br+Stats.jal+Stats.jalr))
+   print "  Accurancy      : %6s  [%g %%] " % ("", 100.-100.*Stats.mispredict/(Stats.br+Stats.jal+Stats.jalr))
    print "\n=============================="
 
    if (options.debug):
-      btb.display()
+      print pred
 
 if __name__ == '__main__':
    main()

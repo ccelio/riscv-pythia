@@ -4,16 +4,17 @@ class BTB:
    btb = {}
    history = []
                     
-   def __init__(self,w,n):
+   def __init__(self,w,n,default):
       self.width = w
       self.num_entries = n
       self.num_avail = n
+      self.default_pkt = default
 
    def predict(self, pc):
       if pc in self.btb:
          return (True, self.btb[pc])
       else:
-         return (False, pc+4)
+         return (False, self.default_pkt)
 
    # TODO needs to delete an entry on a not-taken branch?
    def update(self, pc, taken, target, pred_taken, pred_target):

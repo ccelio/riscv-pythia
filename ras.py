@@ -5,26 +5,33 @@ class RAS:
 
    def __init__(self,n):
       self.num_entries = n
-      self.num_avail = n
+      self.count = 0 
+      self.ptr = 0 # point to current item at top of the stack
+      self.ras = [0]*n
 
-   def predict (self, pc):
-      if (self.num_avail == self.num_entries):
-         return (False, 0)
-      (top_pc, target) = self.ras[len(self.ras)-1] #peek
-      if (pc == top_pc):
-         self.ras.pop()
-         self.num_avail += 1
-         return (True, target)
+   def isEmpty(self):
+      return (self.count == 0)
+
+   def pop(self):
+      if (self.count == 0):
+         return 0
+      addr = self.ras[self.ptr]
+      self.count -= 1
+      if (self.ptr == 0):
+         self.ptr = self.num_entries-1
       else:
-         return (False, target)
+         self.ptr -= 1
+      return addr
 
-
-   def push(self, pc, target):
-      if (self.num_avail > 0):
-         self.ras.append((pc, target))
-         self.num_avail -= 1
-
+   def push(self, addr):
+      if (self.count != self.num_entries-1):
+         self.count += 1
+      if (self.ptr == self.num_entries-1):
+         self.ptr = 0
+      else:
+         self.ptr += 1
+      self.ras[self.ptr] = addr
   
-   def display(self):
-      print "ras: %d entries, %d available" % (self.num_entries, self.num_avail)
-      print self.ras
+   def __str__(self):
+      return "ras: %d entries, %d count, %d pos, %s\n" % (self.num_entries, self.count, self.ptr, self.ras)
+
