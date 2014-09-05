@@ -27,7 +27,7 @@ class Stats:
    jalr = 0
    taken = 0
    ret = 0
-   func = 0
+   call = 0
    mispredict = 0
    missed_ret = 0 # how many rets could be predicted if used in the decode stage?
           
@@ -60,7 +60,7 @@ def ParseLine(line):
    return (pc, inst)
 
 # math for the RAS
-def isRetOrFunc(br_type, inst):
+def isRetOrCall(br_type, inst):
    rd = (inst >> 7) & 0x1f
    rs1 = (inst >> 15) & 0x1f 
    is_ret = (br_type == 3 and rd == 0 and rs1 == 1)
@@ -110,7 +110,7 @@ def main():
 
 
       br_type = isBrOrJmp(inst)
-      (is_ret, is_call) = isRetOrFunc(br_type, inst)
+      (is_ret, is_call) = isRetOrCall(br_type, inst)
      
       if (br_type > 0): 
          # TODO "updateStats()"
@@ -118,6 +118,9 @@ def main():
          elif (br_type==2): Stats.jal += 1
          elif (br_type==3): Stats.jalr += 1
          else: print("error")
+
+         if (is_ret): Stats.ret += 1
+         elif (is_call): Stats.call += 1
 
          next_line = peek_line(trace)
          (target, n_inst) = ParseLine(next_line)
@@ -133,14 +136,19 @@ def main():
             Stats.mispredict += 1
             was_mispredicted = True
 
-         ret_addr = pc+4
+
+#         if (is_ret and not pred_taken and was_mispredicted):
+         if (is_ret and was_mispredicted):
+            Stats.missed_ret += 1
+#         elif (is_ret and pred_taken == was_taken and pred_target == target):
+#            print "yah"
 
          # Update
+         ret_addr = pc+4
          pred.update(pc, was_taken, target, pred_taken, pred_target, is_ret, is_call, ret_addr)
 
          if (options.debug):
-            print "pc: 0x%08x, inst%08x %d, target: %x, %s %s%s %15s %10s" % (pc, inst, isBrOrJmp(inst), target, 
-#                                                                     ("TAKEN")
+            print "pc: 0x%08x, inst%08x %d, target: %x, predtarg: %x (%d), %s %s%s %15s %10s" % (pc, inst, isBrOrJmp(inst), target, pred_target, pred_target,
                                                                      ("T" if was_taken else "-"),
                                                                      ("RET" if is_ret else "   "),
                                                                      ("CALL" if is_call else "    "),
@@ -162,15 +170,22 @@ def main():
 
    #---------------------------------------------------
 
+   total = Stats.br + Stats.jal + Stats.jalr 
+
    print "\n=============================="
    print "  Stats (%s): " % options.tracefile
-   print "   br            : %6d" % Stats.br
-   print "   jal           : %6d" % Stats.jal
-   print "   jalr          : %6d" % Stats.jalr
+   print "   br            : %6d  [%7.3f %%] " % (Stats.br  , 100.*Stats.br/total)
+   print "   jal           : %6d  [%7.3f %%] " % (Stats.jal , 100.*Stats.jal/total)
+   print "   jalr          : %6d  [%7.3f %%] " % (Stats.jalr, 100.*Stats.jalr/total)
    print ""
-   print "  taken          : %6d  [%g %%] " % (Stats.taken, 100.*Stats.taken/(Stats.br+Stats.jal+Stats.jalr))
-   print "  mispredicted   : %6d  [%g %%] " % (Stats.mispredict, 100.*Stats.mispredict/(Stats.br+Stats.jal+Stats.jalr))
-   print "  Accurancy      : %6s  [%g %%] " % ("", 100.-100.*Stats.mispredict/(Stats.br+Stats.jal+Stats.jalr))
+   print "   rets          : %6d  [%7.3f %%] " % (Stats.ret , 100.*Stats.ret/total)
+   print "   calls         : %6d  [%7.3f %%] " % (Stats.call, 100.*Stats.call/total)
+   print ""
+   print "  taken          : %6d  [%7.3f %%] " % (Stats.taken, 100.*Stats.taken/total)
+   print "  mispredicted   : %6d  [%7.3f %%] " % (Stats.mispredict, 100.*Stats.mispredict/total)
+   print "  missed rets    : %6d  [%7.3f %%] " % (Stats.missed_ret, 100.*Stats.missed_ret/total)
+   print ""
+   print "  Accurancy      : %6s  [%7.3f %%] " % ("", 100.-100.*Stats.mispredict/total)
    print "\n=============================="
 
    if (options.debug):

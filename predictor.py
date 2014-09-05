@@ -1,6 +1,7 @@
 
 from btb import BTB
 from ras import RAS
+from bht import BHT
 
 class Predictor:
 
@@ -27,23 +28,24 @@ class RocketPredictor(Predictor):
       self.width = w
       self.btb = BTB(w, int(num_btb_entries),(False,0x0))
       self.ras = RAS(int(num_ras_entries))
+      self.bht = BHT(8, 4)
 
    def predict(self, pc):
-      (pred_taken, btb_pred) = self.btb.predict(pc)
+      bht_pred_taken = self.bht.predict(pc)
+      (btb_hit, btb_pred) = self.btb.predict(pc)
       (pred_target, pred_is_ret) = btb_pred
 #      if (pred_is_ret and not self.ras.isEmpty()):
-#         print self.ras
 #         return (True, self.ras.pop())
-#      else: 
-#         return (pred_taken, pred_target)
-      return (pred_taken, pred_target)
+      if (bht_pred_taken and btb_hit): 
+         return (True, pred_target)
+      else: 
+         return (False, pred_target)
 
 
    def update(self, pc, taken, target, pred_taken, pred_target, is_ret, is_call, return_addr):
       self.btb.update(pc, taken, (target, is_ret), pred_taken, pred_target)
-      if (is_call):
-#         print self.ras
-         self.ras.push(return_addr)
-#         print self.ras
+      self.bht.update(pc, taken)
+#      if (is_call):
+#         self.ras.push(return_addr)
       return
 

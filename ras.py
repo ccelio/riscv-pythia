@@ -1,8 +1,6 @@
 
 class RAS:
 
-   ras = []
-
    def __init__(self,n):
       self.num_entries = n
       self.count = 0 
