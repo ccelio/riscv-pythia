@@ -29,6 +29,9 @@ class Stats:
    ret = 0
    call = 0
    mispredict = 0
+   misp_br = 0
+   misp_jal = 0
+   misp_jalr = 0
    missed_ret = 0 # how many rets could be predicted if used in the decode stage?
           
 # return 0 if not a branch
@@ -80,9 +83,9 @@ def main():
    parser.add_option('-w', '--width', dest='width',
                     help='Processor fetch width', default=1)
    parser.add_option('-b', '--btb-entries', dest='num_btb_entries',
-                    help='Number of BTB entries', default=8)
+                    help='Number of BTB entries', default=64)
    parser.add_option('-r', '--ras-entries', dest='num_ras_entries',
-                    help='Number of RAS entries', default=8)
+                    help='Number of RAS entries', default=2)
    (options, args) = parser.parse_args()
 
 #   if not options.filename:
@@ -132,12 +135,16 @@ def main():
             Stats.taken += 1
             was_taken = True
 
-         if (pred_taken != was_taken or pred_target != target):
+         if (pred_taken != was_taken or (was_taken and pred_taken and pred_target != target)):
             Stats.mispredict += 1
             was_mispredicted = True
+            if (is_ret):
+               Stats.missed_ret += 1
+            if (br_type == 1): Stats.misp_br += 1
+            elif (br_type == 2): Stats.misp_jal += 1
+            elif (br_type == 3): Stats.misp_jalr += 1
 
 
-#         if (is_ret and not pred_taken and was_mispredicted):
          if (is_ret and was_mispredicted):
             Stats.missed_ret += 1
 #         elif (is_ret and pred_taken == was_taken and pred_target == target):
@@ -148,11 +155,12 @@ def main():
          pred.update(pc, was_taken, target, pred_taken, pred_target, is_ret, is_call, ret_addr)
 
          if (options.debug):
-            print "pc: 0x%08x, inst%08x %d, target: %x, predtarg: %x (%d), %s %s%s %15s %10s" % (pc, inst, isBrOrJmp(inst), target, pred_target, pred_target,
+            print "pc: 0x%08x, inst: %08x %d, %d target: %x, predtarg: %x (%d), %s %s%s %15s %10s" % (pc, inst, isBrOrJmp(inst), 
+                                                                     was_taken, target, pred_target, pred_target,
                                                                      ("T" if was_taken else "-"),
                                                                      ("RET" if is_ret else "   "),
                                                                      ("CALL" if is_call else "    "),
-                                                                     ("Predicted Taken" if pred_taken else " "),
+                                                                     ("PT" if pred_taken else "nT"),
                                                                      ("MISPREDICT" if was_mispredicted else " ")
                                                                      )
             #if (was_mispredicted and was_taken):
@@ -165,7 +173,7 @@ def main():
             #   print "pc: %08x, inst: %08x %d , target: %x PC+4" % (pc, inst, isBrOrJmp(inst), target)
       else:
          if (options.debug):
-            print "pc: %08x, inst: %08x %d"  % (pc, inst, isBrOrJmp(inst))
+            print "pc: 0x%08x, inst: %08x %d"  % (pc, inst, isBrOrJmp(inst))
 
 
    #---------------------------------------------------
@@ -174,19 +182,35 @@ def main():
 
    print "\n=============================="
    print "  Stats (%s): " % options.tracefile
-   print "   br            : %6d  [%7.3f %%] " % (Stats.br  , 100.*Stats.br/total)
-   print "   jal           : %6d  [%7.3f %%] " % (Stats.jal , 100.*Stats.jal/total)
-   print "   jalr          : %6d  [%7.3f %%] " % (Stats.jalr, 100.*Stats.jalr/total)
+   print "   Total         : %6d   " % (total)
+   print "     - br        : %6d  [%7.3f %%] " % (Stats.br  , 100.*Stats.br/total)
+   print "     - jal       : %6d  [%7.3f %%] " % (Stats.jal , 100.*Stats.jal/total)
+   print "     - jalr      : %6d  [%7.3f %%] " % (Stats.jalr, 100.*Stats.jalr/total)
    print ""
    print "   rets          : %6d  [%7.3f %%] " % (Stats.ret , 100.*Stats.ret/total)
    print "   calls         : %6d  [%7.3f %%] " % (Stats.call, 100.*Stats.call/total)
    print ""
    print "  taken          : %6d  [%7.3f %%] " % (Stats.taken, 100.*Stats.taken/total)
    print "  mispredicted   : %6d  [%7.3f %%] " % (Stats.mispredict, 100.*Stats.mispredict/total)
-   print "  missed rets    : %6d  [%7.3f %%] " % (Stats.missed_ret, 100.*Stats.missed_ret/total)
+   print "        - br     : %6d  [%7.3f %%] " % (Stats.misp_br,   100.*Stats.misp_br/  total)
+   print "        - br     : %6d  [%7.3f %%] " % (Stats.misp_jal,  100.*Stats.misp_jal/ total)
+   print "        - jalr   : %6d  [%7.3f %%] " % (Stats.misp_jalr, 100.*Stats.misp_jalr/total)
+   print "     -missed rets: %6d  [%7.3f %%] " % (Stats.missed_ret, 100.*Stats.missed_ret/total)
    print ""
    print "  Accurancy      : %6s  [%7.3f %%] " % ("", 100.-100.*Stats.mispredict/total)
    print "\n=============================="
+
+   # these are the "true" hardware results returned by Rocket.
+   # these results only count instructions while "status.ei" is enabled,
+   # and is from the uarch counters, which are captured before the branch-heavy
+   # printf code is called.
+   if (options.predictor == "rocket"):
+      if (options.tracefile == "median"):    print "Median = 82.5% misp = 330, bj = 1888"
+      if (options.tracefile == "multiply"):  print "Multiply = 88.1% mips = 880, bj = 7423" 
+      if (options.tracefile == "qsort"):     print "qsort = 74.6% mips = 12950 bj = 50908"
+      if (options.tracefile == "towers"):    print "Towers = 96.3% mips = 21 bj = 574"
+      if (options.tracefile == "dhrystone"): print "dhrystone = 99.8%, misp = 39, bj = 22518"
+      if (options.tracefile == "vvadd"):     print "Vvadd = 97.3%, misp = 8, bj= 302, "
 
    if (options.debug):
       print pred
