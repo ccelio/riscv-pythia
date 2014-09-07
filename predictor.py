@@ -32,7 +32,6 @@ class RocketPredictor(Predictor):
       self.btb = BTB(w, int(num_btb_entries),(False,0x0))
       self.ras = RAS(int(num_ras_entries))
       nbht = 2*int(num_btb_entries)
-#      nbht = 9
       self.bht = BHT(nbht, int(math.floor(math.log(nbht, 2))))
 
    def predict(self, pc):
@@ -42,7 +41,6 @@ class RocketPredictor(Predictor):
       if (pred_is_ret and not self.ras.isEmpty()):
          return (True, self.ras.pop())
       if (bht_pred_taken and btb_hit): 
-#      if (btb_hit): 
          return (True, pred_target)
       else: 
          return (False, pc+4)
