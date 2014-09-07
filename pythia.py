@@ -24,6 +24,7 @@ from predictor import *
  
 
 class Stats:
+   inst = 0
    br = 0
    jal = 0
    jalr = 0
@@ -131,6 +132,7 @@ def main():
       if not line: break
 
       (pc, inst) = ParseLine(line)
+      Stats.inst += 1
       
       #TODO add a predictWithDecodedInst, to experiment with BHT, RAS using decoded instructions 
       (pred_taken, pred_target) = pred.predict(pc) 
@@ -198,7 +200,8 @@ def main():
 
    print "\n=============================="
    print "  Stats (%s): " % options.benchmark
-   print "   Total         : %6d   " % (total)
+   print "   Total insts   : %6d  [%7.3f %% are br/jal/jalr]" % (Stats.inst, 100.*total/Stats.inst)
+   print "   Total         : %6d  " % (total)
    print "     - br        : %6d  [%7.3f %%] " % (Stats.br  , 100.*Stats.br/total)
    print "     - jal       : %6d  [%7.3f %%] " % (Stats.jal , 100.*Stats.jal/total)
    print "     - jalr      : %6d  [%7.3f %%] " % (Stats.jalr, 100.*Stats.jalr/total)
