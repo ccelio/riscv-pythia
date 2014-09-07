@@ -35,13 +35,16 @@ log to Pythia. use "-s" to specify the benchmark and its arguments.
 Setting Up
 ----------
 
-"Live" mode will require the riscv-tools to be installed. In particular, it
-needs to make use of the "commit logging" ability of "spike".
+"Live" mode will require the [riscv-tools](https://github.com/ucb-bar/riscv-tools) 
+to be installed. In particular, it needs to make use of the "commit logging"
+ability of "spike".
 
 1. Modify riscv-tool's "build.sh" to compile the "spike" ISA simulator into a new directory.
 
+```
     build_project riscv-fesvr --prefix=$RISCV/logger
     build_project riscv-isa-sim --prefix=$RISCV/logger --with-fesvr=$RISCV/logger --enable-commitlog 
+```
 
 2. Rename $RISCV/logger/bin/spike to $RISCV/logger/bin/lspike. 
 
