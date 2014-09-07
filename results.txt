@@ -1,0 +1,73 @@
+=================================
+# Rocket Chisel RTL Performance
+# uarch0 counts mispredicts (take_pc_mem)
+# uarch1 counts total br/jal/jalr
+
+median [82.5%]
+cycle = 6929
+instret = 4995
+uarch0 = 330
+uarch1 = 1888
+
+multiply [88.1%]
+cycle = 24819
+instret = 21172
+uarch0 = 880
+uarch1 = 7423
+
+qsort [74.6%]
+cycle = 169682
+instret = 123189
+uarch0 = 12950
+uarch1 = 50908
+
+towers [96.3%]
+cycle = 7855
+instret = 6724
+uarch0 = 21
+uarch1 = 574
+
+vvadd [97.3%]
+cycle = 3654
+instret = 2586
+uarch0 = 8
+uarch1 = 302
+
+dhrystone [99.8%]
+cycle = 129052
+instret = 123686
+uarch0 = 39
+uarch1 = 22518
+
+spmv [74%]
+cycle = 214891
+instret = 110488
+uarch0 = 2143
+uarch1 = 8251
+
+
+==============================
+  Stats (/scratch/celio/install/riscv-elf/bin/pk /scratch/celio/spec/build.riscv/401.bzip2 /scratch/celio/spec/401.bzip2/src/../data/test/input/dryer.jpg): 
+   Total         : 77079929   
+     - br        : 71528813 [ 92.798 %] 
+     - jal       :  4902017 [  6.360 %] 
+     - jalr      :  649099  [  0.842 %] 
+
+   rets          :  648037  [  0.841 %] 
+   calls         :  648878  [  0.842 %] 
+
+  taken          : 64282464 [ 83.397 %] 
+  mispredicted   :  3598771 [  4.669 %] 
+        - br     :  3395903 [  4.406 %] 
+        - br     :   198175 [  0.257 %] 
+        - jalr   :     4693 [  0.006 %] 
+     -missed rets:     8200 [  0.011 %] 
+
+  Accurancy      :         [ 95.331 %] 
+
+==============================
+
+real  118m17.231s
+user  56m44.868s
+sys   61m23.868s
+
