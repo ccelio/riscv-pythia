@@ -92,8 +92,8 @@ def main():
                     help='Number of RAS entries', default=2)
    (options, args) = parser.parse_args()
 
-   if options.width != 1:
-      parser.error('Only fetch widths of 1 are supported.')
+#   if options.width != 1:
+#      parser.error('Only fetch widths of 1 are supported.')
 
 
    if (options.tracefile == ""):
@@ -110,7 +110,7 @@ def main():
    if (options.predictor == "rocket"):
       pred = RocketPredictor(width, int(options.num_btb_entries), int(options.num_ras_entries))
    else:
-      pred = RocketPredictor(width, int(options.num_btb_entries), int(options.num_ras_entries))
+      pred = SSRocketPredictor(width, int(options.num_btb_entries), int(options.num_ras_entries))
 
    line_buffer = []
    line_buffer.append(trace.readline())
@@ -149,6 +149,8 @@ def main():
       br_type = 0
       is_ret = 0
 
+      taken_br_offset = 0
+
       for i in xrange(0,width):
          line = line_buffer.pop(0)
          buff_cnt -= 1
@@ -178,6 +180,7 @@ def main():
             if (target != pc+4):
                Stats.taken += 1
                was_taken = True
+               taken_br_offset = i
 
             # Add branch to commit bundle (non-branches are invisible for our purposes)
             next_fetch_pc = target
@@ -193,7 +196,7 @@ def main():
 
 
             if (options.debug):
-               print "pc: 0x%08x, inst: %08x %d, %d target: %x, predtarg: %x (%d), %s%s %15s %10s" % (pc, inst, isBrOrJmp(inst),
+               print "pc: 0x%08x, inst: %08x %d, %d target: %x, predtarg: %x (%d), %s%s %s %s" % (pc, inst, isBrOrJmp(inst),
                                                                         was_taken, target, pred_target, pred_target,
                                                                         ("T" if was_taken else "-"),
                                                                         ("RET" if is_ret else "   "),
@@ -227,14 +230,14 @@ def main():
          elif (br_type == 3): Stats.misp_jalr += 1
 
       if (options.debug):
-         print "fp: 0x%08x, next_pc: 0x%08x, pred_target: 0x%08x %s"  % (pc,
+         print "fp: 0x%08x, next_pc: 0x%08x, pred_target: 0x%08x %10s" % (fetch_pc,
                                                                         next_fetch_pc,
                                                                         pred_target,
                                                                         ("MISPREDICT" if was_mispredicted else " "))
          print "----------------------------------"
 
       if commit_bundle:
-         pred.update(commit_bundle, next_fetch_pc)
+         pred.update(fetch_pc, was_taken, next_fetch_pc, commit_bundle, taken_br_offset)
 
 
 
