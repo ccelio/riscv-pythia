@@ -38,16 +38,17 @@ class RocketPredictor(Predictor):
       bht_pred_taken = self.bht.predict(pc)
       (btb_hit, btb_pred) = self.btb.predict(pc)
       (pred_target, pred_is_ret) = btb_pred
+      br_offset = 0
       if (pred_is_ret and not self.ras.isEmpty()):
-         return (True, self.ras.pop())
+         return (True, self.ras.pop(), br_offset)
       if (bht_pred_taken and btb_hit): 
-         return (True, pred_target)
+         return (True, pred_target, br_offset)
       else: 
-         return (False, pc+4)
+         return (False, pc+4, br_offset)
 
-
-   def update(self, pc, taken, target, pred_taken, pred_target, is_ret, is_call, return_addr):
-      self.btb.update(pc, taken, (target, is_ret), pred_taken, pred_target)
+   def update(self, commit_bundle, next_pc):
+      (pc, taken, target, is_ret, is_call, return_addr) = commit_bundle[0]
+      self.btb.update(pc, taken, (target, is_ret))
       self.bht.update(pc, taken)
       if (is_call):
          self.ras.push(return_addr)

@@ -19,8 +19,7 @@ class BTB:
 #         print "\nHIT! PC 0x%08x (%d), btb=%s" % (pc, pc, self.btb)
 #         print "\n     PC 0x%08x (%d), btb=%s miss... -.-" % (pc, pc, self.btb)
 
-   # TODO needs to delete an entry on a not-taken branch?
-   def update(self, pc, taken, target, pred_taken, pred_target):
+   def update(self, pc, taken, target):
       if (not taken):
          return 
       if pc in self.btb:

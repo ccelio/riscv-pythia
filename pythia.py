@@ -5,7 +5,7 @@
 # We use traces created through the "commit logging" of the Spike RISC-V ISA simulator.
 #
 # These traces typically only output when exceptions are enabled, meaning there
-# are ocassionally "gaps" in the commit log. 
+# are ocassionally "gaps" in the commit log.
 
 # The trace:
 #
@@ -21,7 +21,7 @@ import shlex
 from btb import BTB
 from ras import RAS
 from predictor import *
- 
+
 
 class Stats:
    inst = 0
@@ -36,7 +36,7 @@ class Stats:
    misp_jal = 0
    misp_jalr = 0
    missed_ret = 0 # how many rets could be predicted if used in the decode stage?
-          
+
 # return 0 if not a branch
 # non-zero if branch or jmp
 def isBrOrJmp(inst):
@@ -53,6 +53,10 @@ def isBrOrJmp(inst):
    else:
       return 0
 
+def ParseLineForPC(line):
+   pc = int(line[2:18], 16)
+   return pc
+
 def ParseLine(line):
    pc = int(line[2:18], 16)
    inst = int(line[22:30], 16)
@@ -61,11 +65,11 @@ def ParseLine(line):
 # math for the RAS
 def isRetOrCall(br_type, inst):
    rd = (inst >> 7) & 0x1f
-   rs1 = (inst >> 15) & 0x1f 
+   rs1 = (inst >> 15) & 0x1f
    is_ret = (br_type == 3 and rd == 0 and rs1 == 1)
    is_call = ((br_type == 3 or br_type == 2) and rd == 1)
    return (is_ret, is_call)
-      
+
 
 
 def main():
@@ -113,88 +117,131 @@ def main():
    buff_cnt = 1
 
 
-   while 1:
-      # fetch a bunch of instructions
-      if (buff_cnt < 2):
+   EndOfFile = False
 
+   while 1:
+      # ================================
+      # Fetch a bunch of instructions
+      # this is similiar backend, not an actual fetch simulated by the processor
+      if (buff_cnt < width + 1):
          for i in range(0,2):
             line_buffer.append(trace.readline())
             buff_cnt += 1
 
-      if (buff_cnt > 0):
+
+      # ================================
+      # Perform Fetch & Predict
+      line = line_buffer[0]
+      if not line: break
+      fetch_pc = ParseLineForPC(line)
+
+      #TODO add a predictWithDecodedInst, to experiment with BHT, RAS using decoded instructions
+      # use pred_br_offset to "blame" which instruction in the fetch_bundle is the predicted branch
+      (pred_taken, pred_target, pred_br_offset) = pred.predict(fetch_pc)
+
+      # ================================
+      # Execute Stage
+
+      commit_bundle = []
+      was_taken = False          # does the fetch bundle involve a taken br/jmp?
+      next_fetch_pc = 0          # where is the next PC going to be if "was_taken"
+
+      br_type = 0
+      is_ret = 0
+
+      for i in xrange(0,width):
          line = line_buffer.pop(0)
          buff_cnt -= 1
-      else:
-         print "ERROR"
-         exit()
+         Stats.inst += 1
+         if not line:
+            EndOfFile = True
+            break
+         (pc, inst) = ParseLine(line)
+
+         br_type = isBrOrJmp(inst)
+         (is_ret, is_call) = isRetOrCall(br_type, inst)
+
+         if (br_type > 0):
+            if (br_type==1): Stats.br += 1
+            elif (br_type==2): Stats.jal += 1
+            elif (br_type==3): Stats.jalr += 1
+            else: print("error")
+            if (is_ret): Stats.ret += 1
+            elif (is_call): Stats.call += 1
+
+            next_line = line_buffer[0]
+            if not next_line:
+               EndOfFile = True
+               break
+            target = ParseLineForPC(next_line)
+
+            if (target != pc+4):
+               Stats.taken += 1
+               was_taken = True
+
+            # Add branch to commit bundle (non-branches are invisible for our purposes)
+            next_fetch_pc = target
+            ret_addr = pc+4
+            commit_bundle.append((pc, was_taken, target, is_ret, is_call, ret_addr))
+                        # there can only be one taken branch!
+                        # but must give all branches, for the sake of the ghist predictor
+                        # in BOOM, BTB is updated in Execute :(,
+                        # is each branch allowed to update, or only one update per thing?
+                        # sounds like I need to get them a list and let the predictor decide
 
 
-      if not line: break
-
-      (pc, inst) = ParseLine(line)
-      Stats.inst += 1
-      
-      #TODO add a predictWithDecodedInst, to experiment with BHT, RAS using decoded instructions 
-      (pred_taken, pred_target) = pred.predict(pc) 
 
 
-      br_type = isBrOrJmp(inst)
-      (is_ret, is_call) = isRetOrCall(br_type, inst)
-     
-      if (br_type > 0): 
-         # TODO use "updateStats()" method instead
-         if (br_type==1): Stats.br += 1
-         elif (br_type==2): Stats.jal += 1
-         elif (br_type==3): Stats.jalr += 1
-         else: print("error")
-         if (is_ret): Stats.ret += 1
-         elif (is_call): Stats.call += 1
+            if (options.debug):
+               print "pc: 0x%08x, inst: %08x %d, %d target: %x, predtarg: %x (%d), %s%s %15s %10s" % (pc, inst, isBrOrJmp(inst),
+                                                                        was_taken, target, pred_target, pred_target,
+                                                                        ("T" if was_taken else "-"),
+                                                                        ("RET" if is_ret else "   "),
+                                                                        ("CALL" if is_call else "    "),
+                                                                        ("PT" if pred_taken else "nT"),
+                                                                        )
+            # hitting a taken branch means no more valid instructions in this fetch packet
+            if (was_taken):
+               break
 
-         next_line = line_buffer[0]
-         if not next_line: break
-         (target, n_inst) = ParseLine(next_line)
+         else: # !branch
+            if (options.debug):
+               print "pc: 0x%08x, inst: %08x %d"  % (pc, inst, isBrOrJmp(inst))
 
-         was_taken = False 
-         was_mispredicted = False
-
-         if (target != pc+4):
-            Stats.taken += 1
-            was_taken = True
-
-         if (pred_taken != was_taken or (was_taken and pred_taken and pred_target != target)):
-            Stats.mispredict += 1
-            was_mispredicted = True
-            if (is_ret):
-               Stats.missed_ret += 1
-            if (br_type == 1): Stats.misp_br += 1
-            elif (br_type == 2): Stats.misp_jal += 1
-            elif (br_type == 3): Stats.misp_jalr += 1
+      if EndOfFile: break
 
 
-         if (is_ret and was_mispredicted):
+      # =======================================
+      # Commit instructions & Update Predictors
+
+      was_mispredicted = False
+
+      # note: next_fetch_pc is only accurate if a br/jmp is taken
+      if (pred_taken != was_taken or (was_taken and pred_taken and pred_target != next_fetch_pc)):
+         Stats.mispredict += 1
+         was_mispredicted = True
+         if (is_ret):
             Stats.missed_ret += 1
+         if (br_type == 1): Stats.misp_br += 1
+         elif (br_type == 2): Stats.misp_jal += 1
+         elif (br_type == 3): Stats.misp_jalr += 1
 
-         # Update
-         ret_addr = pc+4
-         pred.update(pc, was_taken, target, pred_taken, pred_target, is_ret, is_call, ret_addr)
+      if (options.debug):
+         print "fp: 0x%08x, next_pc: 0x%08x, pred_target: 0x%08x %s"  % (pc,
+                                                                        next_fetch_pc,
+                                                                        pred_target,
+                                                                        ("MISPREDICT" if was_mispredicted else " "))
+         print "----------------------------------"
 
-         if (options.debug):
-            print "pc: 0x%08x, inst: %08x %d, %d target: %x, predtarg: %x (%d), %s %s%s %15s %10s" % (pc, inst, isBrOrJmp(inst), 
-                                                                     was_taken, target, pred_target, pred_target,
-                                                                     ("T" if was_taken else "-"),
-                                                                     ("RET" if is_ret else "   "),
-                                                                     ("CALL" if is_call else "    "),
-                                                                     ("PT" if pred_taken else "nT"),
-                                                                     ("MISPREDICT" if was_mispredicted else " ")
-                                                                     )
-      else:
-         if (options.debug):
-            print "pc: 0x%08x, inst: %08x %d"  % (pc, inst, isBrOrJmp(inst))
+      if commit_bundle:
+         pred.update(commit_bundle, next_fetch_pc)
+
 
 
    #---------------------------------------------------
 
-   total = Stats.br + Stats.jal + Stats.jalr 
+
+   total = Stats.br + Stats.jal + Stats.jalr
    if (total == 0):
       exit("Huh? Total branch/jmp count is zero!")
 
@@ -225,7 +272,7 @@ def main():
    # printf code is called.
    if (options.predictor == "rocket"):
       if (options.benchmark == "median"):    print "Median = 82.5% misp = 330, bj = 1888"
-      if (options.benchmark == "multiply"):  print "Multiply = 88.1% mips = 880, bj = 7423" 
+      if (options.benchmark == "multiply"):  print "Multiply = 88.1% mips = 880, bj = 7423"
       if (options.benchmark == "qsort"):     print "qsort = 74.6% mips = 12950 bj = 50908"
       if (options.benchmark == "towers"):    print "Towers = 96.3% mips = 21 bj = 574"
       if (options.benchmark == "dhrystone"): print "dhrystone = 99.8%, misp = 39, bj = 22518"
@@ -233,6 +280,8 @@ def main():
 
    if (options.debug):
       print pred
+
+
 
 if __name__ == '__main__':
    main()
