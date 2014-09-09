@@ -5,7 +5,9 @@
 # We use traces created through the "commit logging" of the Spike RISC-V ISA simulator.
 #
 # These traces typically only output when exceptions are enabled, meaning there
-# are ocassionally "gaps" in the commit log.
+# are ocassionally "gaps" in the commit log. Also, we "batch" instructions from
+# the pipes we get them from, and we don't really handle the edge cases there
+# either. It's a SW simulator, were you *expecting* exactly correct behavior?!
 
 # The trace:
 #
@@ -17,6 +19,7 @@
 import optparse
 from subprocess import Popen, PIPE
 import shlex
+from itertools import islice
 
 from btb import BTB
 from ras import RAS
@@ -53,10 +56,6 @@ def isBrOrJmp(inst):
    else:
       return 0
 
-def ParseLineForPC(line):
-   pc = int(line[2:18], 16)
-   return pc
-
 def ParseLine(line):
    pc = int(line[2:18], 16)
    inst = int(line[22:30], 16)
@@ -76,8 +75,8 @@ def main():
    parser = optparse.OptionParser()
    parser.add_option('-d', '--debug', action="store_true", dest='debug',
                     help='Debug mode enabled')
-#   parser.add_option('-f', '--pathtobmarks', dest='bmarkpath',
-#                    help='Point to the directory (folder) of your benchmarks.', default="../riscv-tools/riscv-tests/benchmarks/")
+   parser.add_option('-f', '--pathtobmarks', dest='bmarkpath',
+                    help='Point to the directory (folder) of your benchmarks.', default="../riscv-tools/riscv-tests/benchmarks/")
    parser.add_option('-s', '--benchmark', dest='benchmark',
                     help='RISC-V benchmark to be run in "live" mode.', default="../riscv-tools/riscv-tests/benchmarks/vvadd.riscv")
    parser.add_option('-t', '--tracefile', dest='tracefile',
@@ -98,12 +97,15 @@ def main():
 
    if (options.tracefile == ""):
       cmd = "lspike " + options.benchmark
+#      cmd = "lspike " + options.bmarkpath + "/" + options.benchmark
       print cmd
       trace = Popen(shlex.split(cmd), stderr=PIPE).stderr
+#      parsed_trace = map(ParseLine, trace.readlines())
    else:
       options.benchmark = options.tracefile
       print "opening trace file (traces/%s.trace)" % options.tracefile
       trace = open("traces/" + options.tracefile + ".trace")
+#      parsed_trace = map(ParseLine, trace.readlines())
 
    width = int(options.width)
 
@@ -112,132 +114,153 @@ def main():
    else:
       pred = SSRocketPredictor(width, int(options.num_btb_entries), int(options.num_ras_entries))
 
-   line_buffer = []
-   line_buffer.append(trace.readline())
-   buff_cnt = 1
+   #line_buffer = []
+   #line_buffer.append(trace.readline())
+   #buff_cnt = 1
 
 
-   EndOfFile = False
+#   EndOfFile = False
 
+   
+   # 1M gave 33 min bzip (default was 118m)
+   block_sz = 10000000
+#   line_buffer_generator = islice(trace, block_sz)
+#   line_buffer = islice(trace, block_sz)
+#   print line_buffer_generator
+   
+#   for line_buffer in line_buffer_generator:
    while 1:
-      # ================================
-      # Fetch a bunch of instructions
-      # this is similiar backend, not an actual fetch simulated by the processor
-      if (buff_cnt < width + 1):
-         for i in range(0,2):
-            line_buffer.append(trace.readline())
-            buff_cnt += 1
+      line_buffer = islice(trace, block_sz)
+      parsed_trace = map(ParseLine, line_buffer)
+      t_idx = 0
+      trace_sz = len(parsed_trace)
+#      print "Size: %d, blk_sz: %d" % (trace_sz, block_sz)
 
+      if (trace_sz < block_sz): break
 
-      # ================================
-      # Perform Fetch & Predict
-      line = line_buffer[0]
-      if not line: break
-      fetch_pc = ParseLineForPC(line)
+      while 1:
+         # ================================
+         # Fetch a bunch of instructions
+         # this is similiar backend, not an actual fetch simulated by the processor
+         #if (buff_cnt < width + 1):
+         #   for i in range(0,2):
+         #      line_buffer.append(trace.readline())
+         #      buff_cnt += 1
 
-      #TODO add a predictWithDecodedInst, to experiment with BHT, RAS using decoded instructions
-      # use pred_br_offset to "blame" which instruction in the fetch_bundle is the predicted branch
-      (pred_taken, pred_target, pred_br_offset) = pred.predict(fetch_pc)
-
-      # ================================
-      # Execute Stage
-
-      commit_bundle = []
-      was_taken = False          # does the fetch bundle involve a taken br/jmp?
-      next_fetch_pc = 0          # where is the next PC going to be if "was_taken"
-
-      br_type = 0
-      is_ret = 0
-
-      taken_br_offset = 0
-
-      for i in xrange(0,width):
-         line = line_buffer.pop(0)
-         buff_cnt -= 1
-         Stats.inst += 1
-         if not line:
-            EndOfFile = True
+         if (t_idx >= (trace_sz - width - 1)):
             break
-         (pc, inst) = ParseLine(line)
 
-         br_type = isBrOrJmp(inst)
-         (is_ret, is_call) = isRetOrCall(br_type, inst)
+         # ================================
+         # Perform Fetch & Predict
+#      line = line_buffer[0]
+#      if not line: break
+#      fetch_pc = ParseLineForPC(line)
+         (fetch_pc, ignore) = parsed_trace[t_idx]
+#      print "i: %d fetch_pc: 0x%x" % (t_idx, fetch_pc)
 
-         if (br_type > 0):
-            if (br_type==1): Stats.br += 1
-            elif (br_type==2): Stats.jal += 1
-            elif (br_type==3): Stats.jalr += 1
-            else: print("error")
-            if (is_ret): Stats.ret += 1
-            elif (is_call): Stats.call += 1
+         #TODO add a predictWithDecodedInst, to experiment with BHT, RAS using decoded instructions
+         # use pred_br_offset to "blame" which instruction in the fetch_bundle is the predicted branch
+         (pred_taken, pred_target, pred_br_offset) = pred.predict(fetch_pc)
 
-            next_line = line_buffer[0]
-            if not next_line:
-               EndOfFile = True
-               break
-            target = ParseLineForPC(next_line)
+         # ================================
+         # Execute Stage
 
-            if (target != pc+4):
-               Stats.taken += 1
-               was_taken = True
-               taken_br_offset = i
+         commit_bundle = []
+         was_taken = False          # does the fetch bundle involve a taken br/jmp?
+         next_fetch_pc = 0          # where is the next PC going to be if "was_taken"
 
-            # Add branch to commit bundle (non-branches are invisible for our purposes)
-            next_fetch_pc = target
-            ret_addr = pc+4
-            commit_bundle.append((pc, was_taken, target, is_ret, is_call, ret_addr))
-                        # there can only be one taken branch!
-                        # but must give all branches, for the sake of the ghist predictor
-                        # in BOOM, BTB is updated in Execute :(,
-                        # is each branch allowed to update, or only one update per thing?
-                        # sounds like I need to get them a list and let the predictor decide
+         br_type = 0
+         is_ret = 0
+
+         taken_br_offset = 0
+
+         for i in xrange(0,width):
+#         line = line_buffer.pop(0)
+#         buff_cnt -= 1
+            Stats.inst += 1
+#         if not line:
+#            EndOfFile = True
+#            break
+#         (pc, inst) = ParseLine(line)        
+            (pc, inst) = parsed_trace[t_idx]
+            t_idx += 1
+
+            br_type = isBrOrJmp(inst)
+            (is_ret, is_call) = isRetOrCall(br_type, inst)
+
+            if (br_type > 0):
+               if (br_type==1): Stats.br += 1
+               elif (br_type==2): Stats.jal += 1
+               elif (br_type==3): Stats.jalr += 1
+               else: print("error")
+               if (is_ret): Stats.ret += 1
+               elif (is_call): Stats.call += 1
+
+#            next_line = line_buffer[0]
+#            if not next_line:
+#               EndOfFile = True
+#               break
+#            target = ParseLineForPC(next_line)
+               (target, ignore) = parsed_trace[t_idx] # this is actually "t_idx+1", but we've already incremented it
+
+               if (target != pc+4):
+                  Stats.taken += 1
+                  was_taken = True
+                  taken_br_offset = i
+
+               # Add branch to commit bundle (non-branches are invisible for our purposes)
+               next_fetch_pc = target
+               ret_addr = pc+4
+               commit_bundle.append((pc, was_taken, target, is_ret, is_call, ret_addr))
+                           # there can only be one taken branch!
+                           # but must give all branches, for the sake of the ghist predictor
+                           # in BOOM, BTB is updated in Execute :(,
+                           # is each branch allowed to update, or only one update per thing?
+                           # sounds like I need to get them a list and let the predictor decide
+
+               if (options.debug):
+                  print "pc: 0x%08x, inst: %08x %d, %d target: %x, predtarg: %x (%d), %s%s %s %s" % (pc, inst, isBrOrJmp(inst),
+                                                                           was_taken, target, pred_target, pred_target,
+                                                                           ("T" if was_taken else "-"),
+                                                                           ("RET" if is_ret else "   "),
+                                                                           ("CALL" if is_call else "    "),
+                                                                           ("PT" if pred_taken else "nT"),
+                                                                           )
+               # hitting a taken branch means no more valid instructions in this fetch packet
+               if (was_taken):
+                  break
+
+            else: # !branch
+               if (options.debug):
+                  print "pc: 0x%08x, inst: %08x %d"  % (pc, inst, isBrOrJmp(inst))
+
+#      if EndOfFile: break
 
 
+         # =======================================
+         # Commit instructions & Update Predictors
 
+         was_mispredicted = False
 
-            if (options.debug):
-               print "pc: 0x%08x, inst: %08x %d, %d target: %x, predtarg: %x (%d), %s%s %s %s" % (pc, inst, isBrOrJmp(inst),
-                                                                        was_taken, target, pred_target, pred_target,
-                                                                        ("T" if was_taken else "-"),
-                                                                        ("RET" if is_ret else "   "),
-                                                                        ("CALL" if is_call else "    "),
-                                                                        ("PT" if pred_taken else "nT"),
-                                                                        )
-            # hitting a taken branch means no more valid instructions in this fetch packet
-            if (was_taken):
-               break
+         # note: next_fetch_pc is only accurate if a br/jmp is taken
+         if (pred_taken != was_taken or (was_taken and pred_taken and pred_target != next_fetch_pc)):
+            Stats.mispredict += 1
+            was_mispredicted = True
+            if (is_ret):
+               Stats.missed_ret += 1
+            if (br_type == 1): Stats.misp_br += 1
+            elif (br_type == 2): Stats.misp_jal += 1
+            elif (br_type == 3): Stats.misp_jalr += 1
 
-         else: # !branch
-            if (options.debug):
-               print "pc: 0x%08x, inst: %08x %d"  % (pc, inst, isBrOrJmp(inst))
+         if (options.debug):
+            print "fp: 0x%08x, next_pc: 0x%08x, pred_target: 0x%08x %10s" % (fetch_pc,
+                                                                           next_fetch_pc,
+                                                                           pred_target,
+                                                                           ("MISPREDICT" if was_mispredicted else " "))
+            print "----------------------------------"
 
-      if EndOfFile: break
-
-
-      # =======================================
-      # Commit instructions & Update Predictors
-
-      was_mispredicted = False
-
-      # note: next_fetch_pc is only accurate if a br/jmp is taken
-      if (pred_taken != was_taken or (was_taken and pred_taken and pred_target != next_fetch_pc)):
-         Stats.mispredict += 1
-         was_mispredicted = True
-         if (is_ret):
-            Stats.missed_ret += 1
-         if (br_type == 1): Stats.misp_br += 1
-         elif (br_type == 2): Stats.misp_jal += 1
-         elif (br_type == 3): Stats.misp_jalr += 1
-
-      if (options.debug):
-         print "fp: 0x%08x, next_pc: 0x%08x, pred_target: 0x%08x %10s" % (fetch_pc,
-                                                                        next_fetch_pc,
-                                                                        pred_target,
-                                                                        ("MISPREDICT" if was_mispredicted else " "))
-         print "----------------------------------"
-
-      if commit_bundle:
-         pred.update(fetch_pc, was_taken, next_fetch_pc, commit_bundle, taken_br_offset)
+         if commit_bundle:
+            pred.update(fetch_pc, was_taken, next_fetch_pc, commit_bundle, taken_br_offset)
 
 
 
