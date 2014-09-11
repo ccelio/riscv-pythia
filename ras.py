@@ -6,7 +6,7 @@ class RAS:
       self.count = 0 
       self.ptr = 0 # point to current item at top of the stack
       self.ras = [0]*n
-      print "RAS: %d entries" % (self.num_entries)
+      print "RAS   : %d entries" % (self.num_entries)
 
    def isEmpty(self):
       return (self.count == 0)

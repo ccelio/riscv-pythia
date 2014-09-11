@@ -95,6 +95,7 @@ def main():
                     help='Print out the results of your chosen predictor to compare against.', default="realrocket")
    (options, args) = parser.parse_args()
 
+   print "Simulating Predictor (%s) at fetch width (%s)" % (options.predictor, options.width)
 
    if (options.tracefile == ""):
 #      cmd = "lspike " + options.bmarkpath + "/" + options.benchmark
@@ -109,12 +110,16 @@ def main():
 
    width = int(options.width)
 
+   b = int(options.num_btb_entries)
+   r = int(options.num_ras_entries)
    if (options.predictor == "rocket"):
-      pred = RocketPredictor(width, int(options.num_btb_entries), int(options.num_ras_entries))
+      pred = RocketPredictor(width, b, r, 2*b)
    elif (options.predictor == "v1"):
-      pred = SSVer1Predictor(width, int(options.num_btb_entries), int(options.num_ras_entries))
+      pred = SSVer1Predictor(width, b, r, 4*b)
    elif (options.predictor == "v2"):
-      pred = SSVer2Predictor(width, int(options.num_btb_entries), int(options.num_ras_entries))
+      pred = SSVer2Predictor(width, b, r, 4*b)
+   elif (options.predictor == "v3"):
+      pred = SSVer3Predictor(width, b, r, 2*b)
    else:
       exit("Error: invalid predictor chosen")
 
@@ -150,11 +155,13 @@ def main():
          next_fetch_pc = 0          # where is the next PC going to be if "was_taken"
 
          # the subsequent PC boundary, a hard limit if using aligned PC fetch mode
-         shamt = width + 1
-         next_aligned_pc = ((fetch_pc >> shamt) << shamt) + 4*width
+         shamt = 2 + int(math.floor(math.log(width,2)))
+         aligned_pc = ((fetch_pc >> shamt) << shamt) 
+         next_aligned_pc = aligned_pc + 4*width
 
-         br_type = 0
+         br_types = [0]*width
          is_ret = 0
+         saw_no_branches = True
 
          taken_br_offset = 0
 
@@ -164,6 +171,7 @@ def main():
             t_idx += 1
 
             br_type = isBrOrJmp(inst)
+            br_types[i] = br_type
             (is_ret, is_call) = isRetOrCall(br_type, inst)
 
             if (br_type > 0):
@@ -179,9 +187,10 @@ def main():
                if (target != pc+4):
                   Stats.taken += 1
                   was_taken = True
-                  taken_br_offset = i
+                  taken_br_offset = (pc-aligned_pc) >> 2
 
                # Add branch to commit bundle (non-branches are invisible for our purposes)
+               saw_no_branches = False
                next_fetch_pc = target
                ret_addr = pc+4
                commit_bundle.append((pc, was_taken, target, is_ret, is_call, ret_addr))
@@ -204,9 +213,8 @@ def main():
                if (options.debug):
                   print "pc: 0x%08x, inst: %08x %d    next-packet: 0x%x"  % (pc, inst, isBrOrJmp(inst), next_aligned_pc)
 
-            # or if we don't allow unaligned-fetch, we must stop when we hit the end of the aligned fetch boundary
+            # if we don't allow unaligned-fetch, we must stop when we hit the end of the aligned fetch boundary
             if (not options.unaligned_fetch and (pc+4) == next_aligned_pc and i != (width-1)):
-               print "breaking..."
                break
 
          # =======================================
@@ -219,11 +227,18 @@ def main():
          if (pred_taken != was_taken or (was_taken and pred_taken and (pred_target != next_fetch_pc or pred_br_offset != taken_br_offset))):
             Stats.mispredict += 1
             was_mispredicted = True
+            if (saw_no_branches):
+               exit ("Error: mispredicted when no branches occurred")
             if (is_ret):
-               Stats.missed_ret += 1
-            if (br_type == 1): Stats.misp_br += 1
-            elif (br_type == 2): Stats.misp_jal += 1
-            elif (br_type == 3): Stats.misp_jalr += 1
+               Stats.missed_ret += 1 
+            if (was_taken):
+               if   (br_types[taken_br_offset] == 1): Stats.misp_br += 1
+               elif (br_types[taken_br_offset] == 2): Stats.misp_jal += 1
+               elif (br_types[taken_br_offset] == 3): Stats.misp_jalr += 1
+            else:
+               if   (br_types[pred_br_offset] == 1): Stats.misp_br += 1
+               elif (br_types[pred_br_offset] == 2): Stats.misp_jal += 1
+               elif (br_types[pred_br_offset] == 3): Stats.misp_jalr += 1
 #            if ((pred_br_offset != taken_br_offset) and (was_taken and pred_taken and pred_target == next_fetch_pc)):
 #               print "????"
 
@@ -269,6 +284,7 @@ def main():
    print "     -missed rets: %6d  [%7.3f %%] " % (Stats.missed_ret, 100.*Stats.missed_ret/total)
    print ""
    print "  Accurancy      : %6s  [%7.3f %%] " % ("", 100.-100.*Stats.mispredict/total)
+   print "  Miss/1k        : %6.2f  "          % (1.*Stats.mispredict/Stats.inst*1000)
    print "\n=============================="
 
    # these are the "true" hardware results returned by RefChip Rocket (and
@@ -278,11 +294,11 @@ def main():
    if (options.benchmark == "dhrystone"):
       print "RefChip: dhrystone = 99.8%, misp = 39, bj = 22518"
       print "PRockw1: dhrystone = 90.7%"
-      print "PVer1w2:             97.5%"
+      print "PVer1w2:             95.2%   8.55 mpi"
    if (options.benchmark == "median"):
       print "RefChip: Median = 82.5% misp = 330, bj = 1888"
       print "PRockw1: Median = 77.9%"
-      print "PVer1w2:          75.6%"
+      print "PVer1w2:          80.5%"
    if (options.benchmark == "multiply"):
       print "RefChip: Multiply = 88.1% mips = 880, bj = 7423"
       print "PRockw1: Multiply = 89.2%"
@@ -290,11 +306,11 @@ def main():
    if (options.benchmark == "qsort"):
       print "RefChip: qsort =    74.6% mips = 12950 bj = 50908"
       print "PRockw1: qsort =    75.5% "
-      print "PVer1w2:            70.8%"
+      print "PVer1w2:            78.7%    61.6 mpi"
    if (options.benchmark == "towers"):
       print "RefChip: Towers =   96.3% mips = 21 bj = 574"
       print "PRockw1: Towers =   79.2%"
-      print "PVer1w2:            64.7%"
+      print "PVer1w2:            77.0%"
    if (options.benchmark == "vvadd"):
       print "RefChip: Vvadd = 97.3%, misp = 8, bj= 302, "
       print "PRockw1: Vvadd = 97.6%"

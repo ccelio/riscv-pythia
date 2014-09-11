@@ -128,3 +128,103 @@ opening trace file (traces/vvadd.trace)
   Accurancy      :         [ 97.637 %]
  
 ==============================
+==============================
+
+time ./pythia.py -p v1 -w 2 -s "/scratch/celio/install/riscv-elf/bin/pk /scratch/celio/spec/build.riscv/401.bzip2 /scratch/celio/spec/401.bzip2/data/test/input/dryer.jpg "
+Simulating Predictor (v1) at fetch width (2)
+lspike /scratch/celio/install/riscv-elf/bin/pk /scratch/celio/spec/build.riscv/401.bzip2 /scratch/celio/spec/401.bzip2/data/test/input/dryer.jpg 
+BTB   : 64 entries
+RAS   : 2 entries
+BHT   : 256 entries, 8 history bits, 512 counter bits
+   Total insts   : 576227272  [ 13.377 % are br/jal/jalr]
+   Total         : 77079906  
+     - br        : 71528792  [ 92.798 %] 
+     - jal       : 4902016  [  6.360 %] 
+     - jalr      : 649098  [  0.842 %] 
+
+   rets          : 648036  [  0.841 %] 
+   calls         : 648878  [  0.842 %] 
+
+  taken          : 64282446  [ 83.397 %] 
+  mispredicted   : 3541011  [  4.594 %] 
+        - br     : 3263708  [  4.234 %] 
+        - jal    : 259200  [  0.336 %] 
+        - jalr   :   4269  [  0.006 %] 
+     -missed rets:   4120  [  0.005 %] 
+
+  Accurancy      :         [ 95.406 %] 
+  Miss/1k        :   6.15  
+
+==============================
+
+real    37m55.388s
+user    37m40.232s
+sys     0m12.416s
+
+==============================
+==============================
+Pythia Prototype V1 (w2), aligned instruction fetch
+bht is aligned, btb aligned
+BTB: 64 entries
+RAS: 2 entries
+BHT: 128 entries, 7 history bits
+
+opening trace file (traces/dhrystone.trace)
+  mispredicted   :   1057  [  4.803 %] 
+        - br     :    519  [  2.358 %] 
+        - jal    :     29  [  0.132 %] 
+        - jalr   :    509  [  2.313 %] 
+     -missed rets:    509  [  2.313 %] 
+  Accurancy      :         [ 95.197 %] 
+  Miss/1k        :   8.55  
+
+
+opening trace file (traces/median.trace)
+  taken          :   1645  [ 42.883 %] 
+  mispredicted   :    746  [ 19.447 %] 
+        - br     :    652  [ 16.997 %] 
+        - jal    :     67  [  1.747 %] 
+        - jalr   :      4  [  0.104 %] 
+     -missed rets:      4  [  0.104 %] 
+  Accurancy      :         [ 80.553 %] 
+
+opening trace file (traces/multiply.trace)
+  mispredicted   :   1706  [ 12.371 %] 
+        - br     :    725  [  5.257 %] 
+        - jal    :     22  [  0.160 %] 
+        - jalr   :    226  [  1.639 %] 
+     -missed rets:    208  [  1.508 %] 
+
+  Accurancy      :         [ 87.629 %] 
+
+opening trace file (traces/qsort.trace)
+  mispredicted   :  13914  [ 21.296 %] 
+        - br     :  13065  [ 19.997 %] 
+        - jal    :    527  [  0.807 %] 
+        - jalr   :     24  [  0.037 %] 
+     -missed rets:     10  [  0.015 %] 
+  Accurancy      :         [ 78.704 %] 
+  Miss/1k        :  61.57  
+
+
+opening trace file (traces/towers.trace)
+  mispredicted   :    315  [ 22.993 %] 
+        - br     :    146  [ 10.657 %] 
+        - jal    :     44  [  3.212 %] 
+        - jalr   :     93  [  6.788 %] 
+     -missed rets:     77  [  5.620 %] 
+  Accurancy      :         [ 77.007 %] 
+
+opening trace file (traces/vvadd.trace)
+  mispredicted   :     25  [  2.363 %] 
+        - br     :     19  [  1.796 %] 
+        - jal    :      4  [  0.378 %] 
+        - jalr   :      2  [  0.189 %] 
+     -missed rets:      2  [  0.189 %] 
+  Accurancy      :         [ 97.637 %] 
+
+=================================
+==============================
+==============================
+Pythia Prototype V2 (w2), aligned instruction fetch
+bht is aligned, btb aligned

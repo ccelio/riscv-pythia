@@ -7,9 +7,10 @@ class BTB:
       self.width = w
       self.num_entries = n
       self.default_pkt = default
-      print "BTB: %d entries" % self.num_entries
+      print "BTB   : %d entries" % self.num_entries
 
    def predict(self, pc):
+#      print (("pred pc: 0x%x : " % pc) + self.__str__())
       if pc in self.btb:
          return (True, self.btb[pc])
       else:
@@ -22,7 +23,12 @@ class BTB:
       if len(self.btb) > self.num_entries:
          self.btb.popitem(last=False)
 
-   def display(self):
-      print "BTB(%d): %d entries" % (self.width, self.num_entries)
-      print self.btb
+   def __str__(self):
+      string = "("
+      for pc in self.btb:
+         string += ("(0x%x,0x%x.." % (pc, self.btb[pc][0]))
+      string += ")"
+      return string
+
+
 
