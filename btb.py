@@ -7,6 +7,7 @@ class BTB:
       self.width = w
       self.num_entries = n
       self.default_pkt = default
+      print "BTB: %d entries" % self.num_entries
 
    def predict(self, pc):
       if pc in self.btb:

@@ -89,8 +89,8 @@ def main():
                     help='Number of BTB entries', default=64)
    parser.add_option('-r', '--ras-entries', dest='num_ras_entries',
                     help='Number of RAS entries', default=2)
-   parser.add_option('-u', '--unaligned-fetch', dest='unaligned_fetch',
-                    help='Allow the icache to return full W instructions even if the fetch PC is unaligned.', default=2)
+   parser.add_option('-u', '--unaligned-fetch', dest='unaligned_fetch', action="store_true",
+                    help='Allow the icache to return full W instructions even if the fetch PC is unaligned.')
    (options, args) = parser.parse_args()
 
 
@@ -258,7 +258,7 @@ def main():
    print "  taken          : %6d  [%7.3f %%] " % (Stats.taken, 100.*Stats.taken/total)
    print "  mispredicted   : %6d  [%7.3f %%] " % (Stats.mispredict, 100.*Stats.mispredict/total)
    print "        - br     : %6d  [%7.3f %%] " % (Stats.misp_br,   100.*Stats.misp_br/  total)
-   print "        - br     : %6d  [%7.3f %%] " % (Stats.misp_jal,  100.*Stats.misp_jal/ total)
+   print "        - jal    : %6d  [%7.3f %%] " % (Stats.misp_jal,  100.*Stats.misp_jal/ total)
    print "        - jalr   : %6d  [%7.3f %%] " % (Stats.misp_jalr, 100.*Stats.misp_jalr/total)
    print "     -missed rets: %6d  [%7.3f %%] " % (Stats.missed_ret, 100.*Stats.missed_ret/total)
    print ""
@@ -270,13 +270,27 @@ def main():
    # and is from the uarch counters, which are captured before the branch-heavy
    # printf code is called.
 #   if (options.predictor == "rocket"):
-   if (True):
+   if (options.compare_pred == "realrocket"):
       if (options.benchmark == "median"):    print "Median = 82.5% misp = 330, bj = 1888"
       if (options.benchmark == "multiply"):  print "Multiply = 88.1% mips = 880, bj = 7423"
       if (options.benchmark == "qsort"):     print "qsort = 74.6% mips = 12950 bj = 50908"
       if (options.benchmark == "towers"):    print "Towers = 96.3% mips = 21 bj = 574"
       if (options.benchmark == "dhrystone"): print "dhrystone = 99.8%, misp = 39, bj = 22518"
       if (options.benchmark == "vvadd"):     print "Vvadd = 97.3%, misp = 8, bj= 302, "
+   if (options.compare_pred == "control"): # rocket pythia predictor on w1, control experiment
+      if (options.benchmark == "dhrystone"): print "dhrystone = 90.7%"
+      if (options.benchmark == "median"):    print "Median = 77.9%" 
+      if (options.benchmark == "multiply"):  print "Multiply = 89.2%"
+      if (options.benchmark == "qsort"):     print "qsort = 75.5%"
+      if (options.benchmark == "towers"):    print "Towers = 79.2%"
+      if (options.benchmark == "vvadd"):     print "Vvadd = 97.6%"
+   if (options.compare_pred == "v1w2"): # rocket pythia predictor on w1, control experiment
+      if (options.benchmark == "dhrystone"): print "dhrystone = 90.7%"
+      if (options.benchmark == "median"):    print "Median = 77.9%" 
+      if (options.benchmark == "multiply"):  print "Multiply = 89.2%"
+      if (options.benchmark == "qsort"):     print "qsort = 75.5%"
+      if (options.benchmark == "towers"):    print "Towers = 79.2%"
+      if (options.benchmark == "vvadd"):     print "Vvadd = 97.6%"
 
    if (options.debug):
       print pred

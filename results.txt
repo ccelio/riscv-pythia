@@ -71,3 +71,60 @@ real  118m17.231s
 user  56m44.868s
 sys   61m23.868s
 
+=================================
+=================================
+Pythia Rocket Predictor (w1)
+
+BTB: 64 entries
+RAS: 2 entries
+BHT: 128 entries, 7 history bits
+ 
+opening trace file (traces/dhrystone.trace)
+  mispredicted   :   2049  [  9.310 %] 
+        - br     :   1015  [  4.612 %] 
+        - br     :    525  [  2.385 %] 
+        - jalr   :    509  [  2.313 %] 
+     -missed rets:    509  [  2.313 %] 
+  Accurancy      :         [ 90.690 %] 
+  
+opening trace file (traces/median.trace)
+  mispredicted   :    846  [ 22.054 %] 
+        - br     :    750  [ 19.552 %] 
+        - br     :     93  [  2.424 %] 
+        - jalr   :      3  [  0.078 %] 
+     -missed rets:      3  [  0.078 %] 
+  Accurancy      :         [ 77.946 %] 
+
+opening trace file (traces/multiply.trace)
+  mispredicted   :   1488  [ 10.790 %] 
+        - br     :   1436  [ 10.413 %] 
+        - br     :     24  [  0.174 %] 
+        - jalr   :     28  [  0.203 %] 
+     -missed rets:     10  [  0.073 %] 
+  Accurancy      :         [ 89.210 %] 
+
+opening trace file (traces/qsort.trace)
+  mispredicted   :  15979  [ 24.457 %] 
+        - br     :  15553  [ 23.805 %] 
+        - br     :    405  [  0.620 %] 
+        - jalr   :     21  [  0.032 %] 
+     -missed rets:     10  [  0.015 %] 
+  Accurancy      :         [ 75.543 %] 
+
+opening trace file (traces/towers.trace)
+  mispredicted   :    285  [ 20.803 %] 
+        - br     :    150  [ 10.949 %] 
+        - br     :     41  [  2.993 %] 
+        - jalr   :     94  [  6.861 %] 
+     -missed rets:     77  [  5.620 %] 
+  Accurancy      :         [ 79.197 %] 
+
+opening trace file (traces/vvadd.trace)
+  mispredicted   :     25  [  2.363 %]
+     - br        :     19  [  1.796 %]
+     - br        :      4  [  0.378 %]
+     - jalr      :      2  [  0.189 %]
+     -missed rets:      2  [  0.189 %]
+  Accurancy      :         [ 97.637 %]
+ 
+==============================

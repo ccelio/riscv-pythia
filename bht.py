@@ -22,6 +22,4 @@ class BHT:
 
       self.table[idx] = val
       self.ghistory = ((self.ghistory << 1) | (int(taken))) & ((1 << self.ghist_sz) -1)
-#      print "ghist: %x" % (self.ghistory)
-
 
