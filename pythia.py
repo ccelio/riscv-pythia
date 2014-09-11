@@ -91,6 +91,8 @@ def main():
                     help='Number of RAS entries', default=2)
    parser.add_option('-u', '--unaligned-fetch', dest='unaligned_fetch', action="store_true",
                     help='Allow the icache to return full W instructions even if the fetch PC is unaligned.')
+   parser.add_option('-c', '--compare-predictor', dest='compare_pred',
+                    help='Print out the results of your chosen predictor to compare against.', default="realrocket")
    (options, args) = parser.parse_args()
 
 
@@ -111,14 +113,16 @@ def main():
       pred = RocketPredictor(width, int(options.num_btb_entries), int(options.num_ras_entries))
    elif (options.predictor == "v1"):
       pred = SSVer1Predictor(width, int(options.num_btb_entries), int(options.num_ras_entries))
-   else:
+   elif (options.predictor == "v2"):
       pred = SSVer2Predictor(width, int(options.num_btb_entries), int(options.num_ras_entries))
+   else:
+      exit("Error: invalid predictor chosen")
 
-   
+
    # 1M gave 33 min bzip (default was 118m)
    # 10M gave 31 min bzip
    block_sz = 10000000
-   
+
    while 1:
       # ========================================
       # Fetch a bunch of instructions from trace
@@ -145,9 +149,9 @@ def main():
          was_taken = False          # does the fetch bundle involve a taken br/jmp?
          next_fetch_pc = 0          # where is the next PC going to be if "was_taken"
 
-         # the subsequent PC boundary, a hard limit if using aligned PC fetch mode        
+         # the subsequent PC boundary, a hard limit if using aligned PC fetch mode
          shamt = width + 1
-         next_aligned_pc = ((fetch_pc >> shamt) << shamt) + 4*width 
+         next_aligned_pc = ((fetch_pc >> shamt) << shamt) + 4*width
 
          br_type = 0
          is_ret = 0
@@ -190,18 +194,20 @@ def main():
                                                                            ("T" if was_taken else "-"),
                                                                            ("RET" if is_ret else "   "),
                                                                            ("CALL" if is_call else "    "),
-                                                                           ("Pred: TAKEN" if pred_taken else "Pred: +4"),
+                                                                           ("Pred: TAKEN" if pred_taken else "Pred: +4")
                                                                            )
                # hitting a taken branch means no more valid instructions in this fetch packet
-               # or if we don't allow unaligned-fetch, we must stop when we hit the end of the aligned fetch boundary
                if was_taken:
-                  break
-               if (options.unaligned_fetch and (pc+4) == next_aligned_pc):
                   break
 
             else: # !branch
                if (options.debug):
-                  print "pc: 0x%08x, inst: %08x %d"  % (pc, inst, isBrOrJmp(inst))
+                  print "pc: 0x%08x, inst: %08x %d    next-packet: 0x%x"  % (pc, inst, isBrOrJmp(inst), next_aligned_pc)
+
+            # or if we don't allow unaligned-fetch, we must stop when we hit the end of the aligned fetch boundary
+            if (not options.unaligned_fetch and (pc+4) == next_aligned_pc and i != (width-1)):
+               print "breaking..."
+               break
 
          # =======================================
          # Commit instructions & Update Predictors
@@ -218,8 +224,8 @@ def main():
             if (br_type == 1): Stats.misp_br += 1
             elif (br_type == 2): Stats.misp_jal += 1
             elif (br_type == 3): Stats.misp_jalr += 1
-            if ((pred_br_offset != taken_br_offset) and (was_taken and pred_taken and pred_target == next_fetch_pc)):
-               print "????"
+#            if ((pred_br_offset != taken_br_offset) and (was_taken and pred_taken and pred_target == next_fetch_pc)):
+#               print "????"
 
          if (options.debug):
             print "fp: 0x%08x, next_pc: 0x%08x, pred_target: 0x%08x broff(%d %d) %10s" % (fetch_pc,
@@ -265,32 +271,34 @@ def main():
    print "  Accurancy      : %6s  [%7.3f %%] " % ("", 100.-100.*Stats.mispredict/total)
    print "\n=============================="
 
-   # these are the "true" hardware results returned by Rocket.
-   # these results only count instructions while "status.ei" is enabled,
-   # and is from the uarch counters, which are captured before the branch-heavy
-   # printf code is called.
-#   if (options.predictor == "rocket"):
-   if (options.compare_pred == "realrocket"):
-      if (options.benchmark == "median"):    print "Median = 82.5% misp = 330, bj = 1888"
-      if (options.benchmark == "multiply"):  print "Multiply = 88.1% mips = 880, bj = 7423"
-      if (options.benchmark == "qsort"):     print "qsort = 74.6% mips = 12950 bj = 50908"
-      if (options.benchmark == "towers"):    print "Towers = 96.3% mips = 21 bj = 574"
-      if (options.benchmark == "dhrystone"): print "dhrystone = 99.8%, misp = 39, bj = 22518"
-      if (options.benchmark == "vvadd"):     print "Vvadd = 97.3%, misp = 8, bj= 302, "
-   if (options.compare_pred == "control"): # rocket pythia predictor on w1, control experiment
-      if (options.benchmark == "dhrystone"): print "dhrystone = 90.7%"
-      if (options.benchmark == "median"):    print "Median = 77.9%" 
-      if (options.benchmark == "multiply"):  print "Multiply = 89.2%"
-      if (options.benchmark == "qsort"):     print "qsort = 75.5%"
-      if (options.benchmark == "towers"):    print "Towers = 79.2%"
-      if (options.benchmark == "vvadd"):     print "Vvadd = 97.6%"
-   if (options.compare_pred == "v1w2"): # rocket pythia predictor on w1, control experiment
-      if (options.benchmark == "dhrystone"): print "dhrystone = 90.7%"
-      if (options.benchmark == "median"):    print "Median = 77.9%" 
-      if (options.benchmark == "multiply"):  print "Multiply = 89.2%"
-      if (options.benchmark == "qsort"):     print "qsort = 75.5%"
-      if (options.benchmark == "towers"):    print "Towers = 79.2%"
-      if (options.benchmark == "vvadd"):     print "Vvadd = 97.6%"
+   # these are the "true" hardware results returned by RefChip Rocket (and
+   # other proposed predictors).  these RefChip results only count instructions
+   # while "status.ei" is enabled, and is from the uarch counters, which are
+   # captured before the branch-heavy printf code is called.
+   if (options.benchmark == "dhrystone"):
+      print "RefChip: dhrystone = 99.8%, misp = 39, bj = 22518"
+      print "PRockw1: dhrystone = 90.7%"
+      print "PVer1w2:             97.5%"
+   if (options.benchmark == "median"):
+      print "RefChip: Median = 82.5% misp = 330, bj = 1888"
+      print "PRockw1: Median = 77.9%"
+      print "PVer1w2:          75.6%"
+   if (options.benchmark == "multiply"):
+      print "RefChip: Multiply = 88.1% mips = 880, bj = 7423"
+      print "PRockw1: Multiply = 89.2%"
+      print "PVer1w2:            87.7%"
+   if (options.benchmark == "qsort"):
+      print "RefChip: qsort =    74.6% mips = 12950 bj = 50908"
+      print "PRockw1: qsort =    75.5% "
+      print "PVer1w2:            70.8%"
+   if (options.benchmark == "towers"):
+      print "RefChip: Towers =   96.3% mips = 21 bj = 574"
+      print "PRockw1: Towers =   79.2%"
+      print "PVer1w2:            64.7%"
+   if (options.benchmark == "vvadd"):
+      print "RefChip: Vvadd = 97.3%, misp = 8, bj= 302, "
+      print "PRockw1: Vvadd = 97.6%"
+      print "PVer1w2:         97.6%"
 
    if (options.debug):
       print pred
