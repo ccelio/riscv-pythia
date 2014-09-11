@@ -89,74 +89,51 @@ def main():
                     help='Number of BTB entries', default=64)
    parser.add_option('-r', '--ras-entries', dest='num_ras_entries',
                     help='Number of RAS entries', default=2)
+   parser.add_option('-u', '--unaligned-fetch', dest='unaligned_fetch',
+                    help='Allow the icache to return full W instructions even if the fetch PC is unaligned.', default=2)
    (options, args) = parser.parse_args()
-
-#   if options.width != 1:
-#      parser.error('Only fetch widths of 1 are supported.')
 
 
    if (options.tracefile == ""):
-      cmd = "lspike " + options.benchmark
 #      cmd = "lspike " + options.bmarkpath + "/" + options.benchmark
+      cmd = "lspike " + options.benchmark
       print cmd
       trace = Popen(shlex.split(cmd), stderr=PIPE).stderr
-#      parsed_trace = map(ParseLine, trace.readlines())
    else:
       options.benchmark = options.tracefile
       print "opening trace file (traces/%s.trace)" % options.tracefile
       trace = open("traces/" + options.tracefile + ".trace")
-#      parsed_trace = map(ParseLine, trace.readlines())
+
 
    width = int(options.width)
 
    if (options.predictor == "rocket"):
       pred = RocketPredictor(width, int(options.num_btb_entries), int(options.num_ras_entries))
+   elif (options.predictor == "v1"):
+      pred = SSVer1Predictor(width, int(options.num_btb_entries), int(options.num_ras_entries))
    else:
-      pred = SSRocketPredictor(width, int(options.num_btb_entries), int(options.num_ras_entries))
-
-   #line_buffer = []
-   #line_buffer.append(trace.readline())
-   #buff_cnt = 1
-
-
-#   EndOfFile = False
+      pred = SSVer2Predictor(width, int(options.num_btb_entries), int(options.num_ras_entries))
 
    
    # 1M gave 33 min bzip (default was 118m)
+   # 10M gave 31 min bzip
    block_sz = 10000000
-#   line_buffer_generator = islice(trace, block_sz)
-#   line_buffer = islice(trace, block_sz)
-#   print line_buffer_generator
    
-#   for line_buffer in line_buffer_generator:
    while 1:
+      # ========================================
+      # Fetch a bunch of instructions from trace
       line_buffer = islice(trace, block_sz)
       parsed_trace = map(ParseLine, line_buffer)
-      t_idx = 0
       trace_sz = len(parsed_trace)
-#      print "Size: %d, blk_sz: %d" % (trace_sz, block_sz)
-
-      if (trace_sz < block_sz): break
+      t_idx = 0
 
       while 1:
-         # ================================
-         # Fetch a bunch of instructions
-         # this is similiar backend, not an actual fetch simulated by the processor
-         #if (buff_cnt < width + 1):
-         #   for i in range(0,2):
-         #      line_buffer.append(trace.readline())
-         #      buff_cnt += 1
-
          if (t_idx >= (trace_sz - width - 1)):
             break
 
          # ================================
          # Perform Fetch & Predict
-#      line = line_buffer[0]
-#      if not line: break
-#      fetch_pc = ParseLineForPC(line)
          (fetch_pc, ignore) = parsed_trace[t_idx]
-#      print "i: %d fetch_pc: 0x%x" % (t_idx, fetch_pc)
 
          #TODO add a predictWithDecodedInst, to experiment with BHT, RAS using decoded instructions
          # use pred_br_offset to "blame" which instruction in the fetch_bundle is the predicted branch
@@ -164,10 +141,13 @@ def main():
 
          # ================================
          # Execute Stage
-
          commit_bundle = []
          was_taken = False          # does the fetch bundle involve a taken br/jmp?
          next_fetch_pc = 0          # where is the next PC going to be if "was_taken"
+
+         # the subsequent PC boundary, a hard limit if using aligned PC fetch mode        
+         shamt = width + 1
+         next_aligned_pc = ((fetch_pc >> shamt) << shamt) + 4*width 
 
          br_type = 0
          is_ret = 0
@@ -175,13 +155,7 @@ def main():
          taken_br_offset = 0
 
          for i in xrange(0,width):
-#         line = line_buffer.pop(0)
-#         buff_cnt -= 1
             Stats.inst += 1
-#         if not line:
-#            EndOfFile = True
-#            break
-#         (pc, inst) = ParseLine(line)        
             (pc, inst) = parsed_trace[t_idx]
             t_idx += 1
 
@@ -196,11 +170,6 @@ def main():
                if (is_ret): Stats.ret += 1
                elif (is_call): Stats.call += 1
 
-#            next_line = line_buffer[0]
-#            if not next_line:
-#               EndOfFile = True
-#               break
-#            target = ParseLineForPC(next_line)
                (target, ignore) = parsed_trace[t_idx] # this is actually "t_idx+1", but we've already incremented it
 
                if (target != pc+4):
@@ -213,29 +182,26 @@ def main():
                ret_addr = pc+4
                commit_bundle.append((pc, was_taken, target, is_ret, is_call, ret_addr))
                            # there can only be one taken branch!
-                           # but must give all branches, for the sake of the ghist predictor
-                           # in BOOM, BTB is updated in Execute :(,
-                           # is each branch allowed to update, or only one update per thing?
-                           # sounds like I need to get them a list and let the predictor decide
+                           # but must give all branches for history predictors
 
                if (options.debug):
-                  print "pc: 0x%08x, inst: %08x %d, %d target: %x, predtarg: %x (%d), %s%s %s %s" % (pc, inst, isBrOrJmp(inst),
+                  print "pc: 0x%08x, inst: %08x %d, %d target: %x, predtarg: %x (%d), %s %s%s %s" % (pc, inst, isBrOrJmp(inst),
                                                                            was_taken, target, pred_target, pred_target,
                                                                            ("T" if was_taken else "-"),
                                                                            ("RET" if is_ret else "   "),
                                                                            ("CALL" if is_call else "    "),
-                                                                           ("PT" if pred_taken else "nT"),
+                                                                           ("Pred: TAKEN" if pred_taken else "Pred: +4"),
                                                                            )
                # hitting a taken branch means no more valid instructions in this fetch packet
-               if (was_taken):
+               # or if we don't allow unaligned-fetch, we must stop when we hit the end of the aligned fetch boundary
+               if was_taken:
+                  break
+               if (options.unaligned_fetch and (pc+4) == next_aligned_pc):
                   break
 
             else: # !branch
                if (options.debug):
                   print "pc: 0x%08x, inst: %08x %d"  % (pc, inst, isBrOrJmp(inst))
-
-#      if EndOfFile: break
-
 
          # =======================================
          # Commit instructions & Update Predictors
@@ -243,7 +209,8 @@ def main():
          was_mispredicted = False
 
          # note: next_fetch_pc is only accurate if a br/jmp is taken
-         if (pred_taken != was_taken or (was_taken and pred_taken and pred_target != next_fetch_pc)):
+         # TODO, is br_offset check correct?
+         if (pred_taken != was_taken or (was_taken and pred_taken and (pred_target != next_fetch_pc or pred_br_offset != taken_br_offset))):
             Stats.mispredict += 1
             was_mispredicted = True
             if (is_ret):
@@ -251,18 +218,24 @@ def main():
             if (br_type == 1): Stats.misp_br += 1
             elif (br_type == 2): Stats.misp_jal += 1
             elif (br_type == 3): Stats.misp_jalr += 1
+            if ((pred_br_offset != taken_br_offset) and (was_taken and pred_taken and pred_target == next_fetch_pc)):
+               print "????"
 
          if (options.debug):
-            print "fp: 0x%08x, next_pc: 0x%08x, pred_target: 0x%08x %10s" % (fetch_pc,
+            print "fp: 0x%08x, next_pc: 0x%08x, pred_target: 0x%08x broff(%d %d) %10s" % (fetch_pc,
                                                                            next_fetch_pc,
                                                                            pred_target,
+                                                                           pred_br_offset,
+                                                                           taken_br_offset,
                                                                            ("MISPREDICT" if was_mispredicted else " "))
             print "----------------------------------"
 
+         # TODO how do we enforce arbitrary nature of commit packet size?
          if commit_bundle:
             pred.update(fetch_pc, was_taken, next_fetch_pc, commit_bundle, taken_br_offset)
 
-
+      # end of trace file
+      if (trace_sz < block_sz): break
 
    #---------------------------------------------------
 
@@ -296,7 +269,8 @@ def main():
    # these results only count instructions while "status.ei" is enabled,
    # and is from the uarch counters, which are captured before the branch-heavy
    # printf code is called.
-   if (options.predictor == "rocket"):
+#   if (options.predictor == "rocket"):
+   if (True):
       if (options.benchmark == "median"):    print "Median = 82.5% misp = 330, bj = 1888"
       if (options.benchmark == "multiply"):  print "Multiply = 88.1% mips = 880, bj = 7423"
       if (options.benchmark == "qsort"):     print "qsort = 74.6% mips = 12950 bj = 50908"
