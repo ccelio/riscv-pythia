@@ -4,7 +4,7 @@
 This is a trace-based simulator designed to explore branch prediction
 strategies. 
 
-In particular, BTB, BHT, and RAT interations with superscalar fetch units.
+In particular, BTB, BHT, and RAS interations with superscalar fetch units.
 
 Getting Started
 ---------------
